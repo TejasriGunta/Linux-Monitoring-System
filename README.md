@@ -195,56 +195,6 @@ activity_monitor/
 - **History depth**: 120 samples per metric
 - **Max processes displayed**: Adapts to terminal height
 
-## Troubleshooting
-
-### ncurses rendering issues
-```bash
-# Set TERM environment variable
-export TERM=xterm-256color
-./activity_monitor
-```
-
-### Permission errors for /proc
-Run with appropriate permissions or check that /proc is mounted.
-
-### Display corruption after exit
-```bash
-# Reset terminal
-reset
-# or
-stty sane
-```
-
-### Graph not visible
-- Ensure terminal is at least 80x24 characters
-- Try resizing terminal window
-- Check that terminal supports extended ASCII (ACS_BULLET, ACS_CKBOARD)
-
-## Future Enhancements
-
-- [ ] Per-process CPU% using sysconf(_SC_CLK_TCK) and precise jiffies
-- [ ] GPU monitoring (NVIDIA/AMD)
-- [ ] Configurable color themes
-- [ ] Export metrics to CSV/JSON
-- [ ] Filtering processes by name or user
-- [ ] System notifications for threshold alerts
-- [ ] Configuration file support (~/.activity_monitor.conf)
-- [ ] Mouse support for clicking processes
-- [ ] Detailed process view (threads, open files, connections)
-
-## Contributing
-
-Contributions welcome! Areas of interest:
-- More accurate per-process CPU calculations
-- Additional graph types (stacked area, heatmaps)
-- Plugin system for custom metrics
-- Network connection tracking
-- I/O statistics per process
-
-## License
-
-MIT License - feel free to use and modify.
-
 ## Acknowledgments
 
 Built using:
@@ -256,4 +206,3 @@ Inspired by traditional Unix tools like `top`, `htop`, and `glances`.
 
 ---
 
-**Note**: This is an educational project demonstrating system programming concepts including /proc filesystem parsing, ncurses UI development, real-time data visualization, and process management in Linux/Unix environments.
