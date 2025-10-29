@@ -2,7 +2,8 @@
 
 A real-time terminal-based system monitoring tool built with C++ and ncurses. Displays comprehensive system metrics including CPU usage per core, memory (main + swap), disk usage, network statistics, system information, and process management.
 
-![Activity Monitor Screenshot](screenshot.png)
+
+<img width="1195" height="879" alt="Screenshot 2025-10-29 115733" src="https://github.com/user-attachments/assets/7c6a1492-1e4d-4a7c-8ad9-493f9c7aa037" />
 
 ## Features
 
