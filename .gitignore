@@ -1,0 +1,30 @@
+# Compiled binaries
+activity_monitor
+*.o
+*.out
+*.exe
+
+# Debug files
+*.log
+activity_monitor_debug.log
+
+# Build artifacts
+*.a
+*.so
+*.dylib
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+*.tmp
+*.bak
+
+# Core dumps
+core
+core.*
