@@ -21,9 +21,8 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
 - **k** - Kill selected process (with confirmation dialog)
 - **c** - Sort processes by CPU usage
 - **m** - Sort processes by memory usage
-- **↑/↓** - Navigate process list
 - **PgUp/PgDn** - Fast scroll through processes
-- **Home/End** - Jump to first/last process
+
 
 ### 🎨 Visual Features
 - Color-coded metrics (green/yellow/red based on thresholds)
