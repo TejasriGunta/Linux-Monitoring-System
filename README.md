@@ -2,7 +2,8 @@
 
 A real-time terminal-based system monitoring tool built with C++ and ncurses. Displays comprehensive system metrics including CPU usage per core, memory (main + swap), disk usage, disk I/O statistics, system information, and process management.
 
-![Activity Monitor Screenshot](screenshot.png)
+
+<img width="1195" height="879" alt="Screenshot 2025-10-29 115733" src="https://github.com/user-attachments/assets/7c6a1492-1e4d-4a7c-8ad9-493f9c7aa037" />
 
 ## Features
 
@@ -20,9 +21,8 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
 - **k** - Kill selected process (with confirmation dialog)
 - **c** - Sort processes by CPU usage
 - **m** - Sort processes by memory usage
-- **↑/↓** - Navigate process list
 - **PgUp/PgDn** - Fast scroll through processes
-- **Home/End** - Jump to first/last process
+
 
 ### 🎨 Visual Features
 - Color-coded metrics (green/yellow/red based on thresholds)
@@ -238,6 +238,11 @@ stty sane
   - Better visibility of micro-variations (e.g., 8.1% → 8.5%)
   - Labeled core separators (P0, P1, etc.)
   - Color-coded per-core history tracking
+- ✅ **Process search feature**
+  - Press 's' to enter search mode
+  - Type to filter processes by name
+  - Real-time filtering as you type
+  - ESC to clear search and exit search mode
 
 ## Future Enhancements
 
@@ -246,7 +251,6 @@ stty sane
 - [ ] GPU monitoring (NVIDIA/AMD)
 - [ ] Configurable color themes
 - [ ] Export metrics to CSV/JSON
-- [ ] Filtering processes by name or user
 - [ ] System notifications for threshold alerts
 - [ ] Configuration file support (~/.activity_monitor.conf)
 - [ ] Mouse support for clicking processes
@@ -277,4 +281,3 @@ Inspired by traditional Unix tools like `top`, `htop`, and `glances`.
 
 ---
 
-**Note**: This is an educational project demonstrating system programming concepts including /proc filesystem parsing, ncurses UI development, real-time data visualization, and process management in Linux/Unix environments.
