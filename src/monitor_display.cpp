@@ -66,7 +66,7 @@ void ActivityMonitor::initializeWindows() {
     disk_win = newwin(mid_h, disk_w, cpu_h, margin + sysinfo_w + 1);
     process_win = newwin(bottom_h, process_w, cpu_h + mid_h, margin);
     mem_win = newwin(mem_h, right_col_w, cpu_h + mid_h, margin + process_w + 1);
-    network_win = newwin(network_h, right_col_w, cpu_h + mid_h + mem_h + 1, margin + process_w + 1);
+    diskio_win = newwin(network_h, right_col_w, cpu_h + mid_h + mem_h + 1, margin + process_w + 1);
 }
 
 void ActivityMonitor::resizeWindows() {
@@ -81,7 +81,7 @@ void ActivityMonitor::resizeWindows() {
     if (cpu_win) delwin(toWin(cpu_win));
     if (mem_win) delwin(toWin(mem_win));
     if (disk_win) delwin(toWin(disk_win));
-    if (network_win) delwin(toWin(network_win));
+    if (diskio_win) delwin(toWin(diskio_win));
     if (process_win) delwin(toWin(process_win));
 
     initializeWindows();
@@ -203,33 +203,97 @@ void ActivityMonitor::displayCPUInfo() {
     int start_total = std::max(0, total_len - graph_w);
     (void)start_total; // suppress unused warning (kept for future use)
 
-        // Plot all cores; use absolute positioning so past points stay fixed
-        for (int pi = 0; pi < (int)plot_cores.size(); ++pi) {
+    // Dynamic Y-axis scaling: find min/max across visible history to zoom into actual range
+    float min_val = 100.0f;
+    float max_val = 0.0f;
+    for (int pi = 0; pi < (int)plot_cores.size(); ++pi) {
+        int c = plot_cores[pi];
+        const std::vector<float>& hist = (c < (int)display_cpu_history.size()) ? display_cpu_history[c] : std::vector<float>();
+        if (hist.empty()) continue;
+        int hist_len = (int)hist.size();
+        int samples_to_draw = std::min(graph_w, hist_len);
+        for (int x = 0; x < samples_to_draw; ++x) {
+            int hist_idx = hist_len - samples_to_draw + x;
+            if (hist_idx >= 0 && hist_idx < hist_len) {
+                float val = hist[hist_idx];
+                if (val > max_val) max_val = val;
+                if (val < min_val) min_val = val;
+            }
+        }
+    }
+    
+    // Add padding to range for better visibility (10% padding on each side)
+    float range = max_val - min_val;
+    if (range < 1.0f) range = 1.0f; // minimum 1% range for tiny variations
+    float padding = range * 0.1f;
+    min_val = std::max(0.0f, min_val - padding);
+    max_val = std::min(100.0f, max_val + padding);
+    
+    // Ensure minimum range for visibility
+    if (max_val - min_val < 2.0f) {
+        float center = (max_val + min_val) / 2.0f;
+        min_val = std::max(0.0f, center - 1.0f);
+        max_val = std::min(100.0f, center + 1.0f);
+    }
+
+    // Display scale info
+    mvwprintw(w, graph_base, graph_x, "%.1f%%", max_val);
+    mvwprintw(w, graph_base + graph_h - 1, graph_x, "%.1f%%", min_val);
+
+    // STACKED VISUALIZATION: Each core gets its own horizontal band for better separation
+    int num_cores = (int)plot_cores.size();
+    if (num_cores > 0) {
+        int band_height = graph_h / num_cores;
+        if (band_height < 1) band_height = 1;
+        
+        for (int pi = 0; pi < num_cores; ++pi) {
             int c = plot_cores[pi];
             int col = 6 + (c % 8);
             static const std::vector<float> empty_vec2;
             const std::vector<float>& hist = (c < (int)display_cpu_history.size()) ? display_cpu_history[c] : empty_vec2;
             if (hist.empty()) continue;
             
-            // Map latest history samples to rightmost columns; older samples stay in place
+            // Calculate band position for this core
+            int band_base = graph_base + pi * band_height;
+            int band_h = (pi == num_cores - 1) ? (graph_h - pi * band_height) : band_height;
+            
+            // Draw core label on left
+            mvwprintw(w, band_base + band_h / 2, graph_x - 3, "P%d", c);
+            
+            // Map latest history samples to rightmost columns
             int hist_len = (int)hist.size();
             int samples_to_draw = std::min(graph_w, hist_len);
             
             for (int x = 0; x < samples_to_draw; ++x) {
-                // Map column x to absolute history index (latest samples on right)
                 int hist_idx = hist_len - samples_to_draw + x;
                 if (hist_idx < 0 || hist_idx >= hist_len) continue;
                 
                 float val = hist[hist_idx]; // raw sample
-                if (val < 0.1f) continue; // skip near-zero values
                 
-                int level = static_cast<int>(val / 100.0f * (graph_h - 1) + 0.5f);
-                int row = graph_base + (graph_h - 1 - level);
+                // Scale to visible range within this core's band
+                float scaled_val = (val - min_val) / (max_val - min_val) * 100.0f;
+                if (scaled_val < 0.0f) scaled_val = 0.0f;
+                if (scaled_val > 100.0f) scaled_val = 100.0f;
+                
+                // Map to this core's band (invert so higher values are at top of band)
+                int level = static_cast<int>(scaled_val / 100.0f * (band_h - 1) + 0.5f);
+                int row = band_base + (band_h - 1 - level);
+                
                 wattron(w, COLOR_PAIR(col) | A_BOLD);
                 mvwaddch(w, row, graph_x + x, ACS_BULLET);
                 wattroff(w, COLOR_PAIR(col) | A_BOLD);
             }
+            
+            // Draw separator line between cores (except for last one)
+            if (pi < num_cores - 1) {
+                wattron(w, COLOR_PAIR(5)); // dim color for separator
+                for (int gx = 0; gx < graph_w; ++gx) {
+                    mvwaddch(w, band_base + band_h, graph_x + gx, ACS_HLINE);
+                }
+                wattroff(w, COLOR_PAIR(5));
+            }
         }
+    }
 
     // (no total overlay) — keep graph as simple colored dots only
 
@@ -348,73 +412,71 @@ void ActivityMonitor::displayDiskInfo() {
 }
 
 // ========================= NETWORK PANEL =========================
-void ActivityMonitor::displayNetworkInfo() {
-    WINDOW* w = toWin(network_win);
+// ========================= DISK I/O PANEL =========================
+void ActivityMonitor::displayDiskIOInfo() {
+    WINDOW* w = toWin(diskio_win);
     werase(w);
-    drawHeader(w, "Network Usage");
+    drawHeader(w, "Disk I/O");
     int h, wid;
     getmaxyx(w, h, wid);
     (void)h;
 
-    // numeric summary - show current rate and session totals
-    float rx_kbps = (net_rx_history.empty() ? 0.0f : net_rx_history.back());
-    float tx_kbps = (net_tx_history.empty() ? 0.0f : net_tx_history.back());
+    // Display current I/O rates
+    mvwprintw(w, 1, 2, "Read:  %7.1f MB/s", diskio_info.read_mb_per_sec);
+    mvwprintw(w, 2, 2, "Write: %7.1f MB/s", diskio_info.write_mb_per_sec);
+    
+    mvwprintw(w, 1, 24, "| %7.0f ops/s", diskio_info.read_ops_per_sec);
+    mvwprintw(w, 2, 24, "| %7.0f ops/s", diskio_info.write_ops_per_sec);
+    
+    // I/O busy percentage
+    int busy_color = 1; // green
+    if (diskio_info.io_busy_percent >= 80.0f) busy_color = 3; // red
+    else if (diskio_info.io_busy_percent >= 50.0f) busy_color = 2; // yellow
+    
+    wattron(w, COLOR_PAIR(busy_color));
+    mvwprintw(w, 4, 2, "Busy: %5.1f%%", diskio_info.io_busy_percent);
+    wattroff(w, COLOR_PAIR(busy_color));
 
-    double session_rx_mb = 0.0;
-    double session_tx_mb = 0.0;
-    if (curr_net_rx_bytes >= net_start_rx) session_rx_mb = (double)(curr_net_rx_bytes - net_start_rx) / (1024.0 * 1024.0);
-    if (curr_net_tx_bytes >= net_start_tx) session_tx_mb = (double)(curr_net_tx_bytes - net_start_tx) / (1024.0 * 1024.0);
-
-    mvwprintw(w, 1, 2, "Total Rx: %6.2f MB", session_rx_mb);
-    mvwprintw(w, 2, 2, "Rx/s:     %7.1f KB/s", rx_kbps);
-    mvwprintw(w, 4, 2, "Total Tx: %6.2f MB", session_tx_mb);
-    mvwprintw(w, 5, 2, "Tx/s:     %7.1f KB/s", tx_kbps);
-
-    // Draw simple horizontal filled bars (compact layout)
-    int bar_y_rx = 3; // place right after numeric summary
-    int bar_y_tx = 6; // a bit lower for TX
+    // Draw horizontal bar graphs for read and write
+    int bar_y_read = 5;
+    int bar_y_write = 6;
     int bar_w = std::max(20, wid - 4);
     
     // Find max for scaling
-    float max_kbps = 10.0f;
-    for (float v : net_rx_history) if (v > max_kbps) max_kbps = v;
-    for (float v : net_tx_history) if (v > max_kbps) max_kbps = v;
+    float max_rate = 10.0f; // minimum 10 MB/s scale
+    for (float v : diskio_read_history) if (v > max_rate) max_rate = v;
+    for (float v : diskio_write_history) if (v > max_rate) max_rate = v;
     
     // Compute fill widths
-    float rx_pct = std::min(100.0f, (rx_kbps / max_kbps) * 100.0f);
-    float tx_pct = std::min(100.0f, (tx_kbps / max_kbps) * 100.0f);
-    int rx_fill = static_cast<int>((bar_w * rx_pct / 100.0f) + 0.5f);
-    int tx_fill = static_cast<int>((bar_w * tx_pct / 100.0f) + 0.5f);
+    float read_pct = std::min(100.0f, (diskio_info.read_mb_per_sec / max_rate) * 100.0f);
+    float write_pct = std::min(100.0f, (diskio_info.write_mb_per_sec / max_rate) * 100.0f);
+    int read_fill = static_cast<int>((bar_w * read_pct / 100.0f) + 0.5f);
+    int write_fill = static_cast<int>((bar_w * write_pct / 100.0f) + 0.5f);
     
-    // Draw RX bar (cyan filled)
+    // Draw Read bar (cyan)
     for (int x = 0; x < bar_w; ++x) {
-        if (x < rx_fill) {
+        if (x < read_fill) {
             wattron(w, COLOR_PAIR(4) | A_BOLD);
-            mvwaddch(w, bar_y_rx, 2 + x, ACS_CKBOARD);
+            mvwaddch(w, bar_y_read, 2 + x, ACS_CKBOARD);
             wattroff(w, COLOR_PAIR(4) | A_BOLD);
         } else {
-            mvwaddch(w, bar_y_rx, 2 + x, ' ');
+            mvwaddch(w, bar_y_read, 2 + x, ' ');
         }
     }
     
-    // Draw TX bar (red filled)
+    // Draw Write bar (red)
     for (int x = 0; x < bar_w; ++x) {
-        if (x < tx_fill) {
+        if (x < write_fill) {
             wattron(w, COLOR_PAIR(10) | A_BOLD);
-            mvwaddch(w, bar_y_tx, 2 + x, ACS_CKBOARD);
+            mvwaddch(w, bar_y_write, 2 + x, ACS_CKBOARD);
             wattroff(w, COLOR_PAIR(10) | A_BOLD);
         } else {
-            mvwaddch(w, bar_y_tx, 2 + x, ' ');
+            mvwaddch(w, bar_y_write, 2 + x, ' ');
         }
     }
 
     wrefresh(w);
 }
-
-// NOTE: Duplicate/legacy network panel implementation removed.
-// The active network renderer is the earlier displayNetworkInfo() which
-// uses the single `network_win` window pointer. This prevents inconsistencies
-// where some code referenced a non-existent `net_win` field.
 
 // ========================= TEMPERATURE PANEL =========================
 // ========================= SYSTEM INFO PANEL =========================
@@ -454,8 +516,8 @@ void ActivityMonitor::displaySystemInfo() {
     };
     
     int load_color_1 = getLoadColor(system_info.load_1min);
-    int load_color_5 = getLoadColor(system_info.load_5min);
-    int load_color_15 = getLoadColor(system_info.load_15min);
+    (void)getLoadColor(system_info.load_5min);   // Suppress unused warning
+    (void)getLoadColor(system_info.load_15min);  // Suppress unused warning
 
     // Format rate helper
     auto formatRate = [](float rate) -> std::string {
@@ -502,27 +564,65 @@ void ActivityMonitor::displaySystemInfo() {
 void ActivityMonitor::displayProcessInfo() {
     WINDOW* w = toWin(process_win);
     werase(w);
-    drawHeader(w, "Processes (q=quit, k=kill, r=refresh)");
+    drawHeader(w, "Processes (q=quit, k=kill, /=search, c=sort CPU, m=sort mem)");
 
     int h, wid;
     getmaxyx(w, h, wid);
-    mvwprintw(w, 1, 2, "%-6s %-25s %-8s %-8s", "PID", "Name", "CPU%", "Mem%");
+    
+    // Display search bar
+    int header_line = 1;
+    if (search_mode || !search_query.empty()) {
+        wattron(w, COLOR_PAIR(search_mode ? 6 : 4));
+        mvwprintw(w, header_line, 2, "Search: %s%s", search_query.c_str(), search_mode ? "_" : "");
+        wattroff(w, COLOR_PAIR(search_mode ? 6 : 4));
+        if (!search_mode && !search_query.empty()) {
+            mvwprintw(w, header_line, 2 + 8 + (int)search_query.size() + 5, "(ESC to clear)");
+        }
+        header_line++;
+    }
+    
+    // Filter processes if search is active
+    if (!search_query.empty()) {
+        filtered_processes.clear();
+        std::string query_lower = search_query;
+        std::transform(query_lower.begin(), query_lower.end(), query_lower.begin(), ::tolower);
+        
+        for (const auto& p : processes) {
+            std::string name_lower = p.name;
+            std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
+            if (name_lower.find(query_lower) != std::string::npos) {
+                filtered_processes.push_back(p);
+            }
+        }
+    }
+    
+    // Choose which process list to display
+    auto& proc_list = search_query.empty() ? processes : filtered_processes;
+    
+    mvwprintw(w, header_line, 2, "%-6s %-25s %-8s %-8s", "PID", "Name", "CPU%", "Mem%");
+    header_line++;
 
-    int rows = h - 5;
+    int rows = h - header_line - 2;
     int index = process_list_offset;
 
-    for (int i = 0; i < rows && index < (int)processes.size(); ++i, ++index) {
-        const Process& p = processes[index];
+    for (int i = 0; i < rows && index < (int)proc_list.size(); ++i, ++index) {
+        const Process& p = proc_list[index];
         int abs_idx = index;
         if (abs_idx == process_selected) wattron(w, A_REVERSE);
-        mvwprintw(w, i + 2, 2, "%-6d %-25s %7.1f %7.1f",
+        mvwprintw(w, header_line + i, 2, "%-6d %-25s %7.1f %7.1f",
                   p.pid, p.name.c_str(), p.cpu_percent, p.mem_percent);
         if (abs_idx == process_selected) wattroff(w, A_REVERSE);
     }
 
-    if ((int)processes.size() > rows) {
-        mvwprintw(w, h - 1, wid - 20, "Showing %d/%zu", rows, processes.size());
+    if ((int)proc_list.size() > rows) {
+        mvwprintw(w, h - 1, wid - 20, "Showing %d/%zu", rows, proc_list.size());
     }
+    
+    // Show match count if searching
+    if (!search_query.empty()) {
+        mvwprintw(w, h - 1, 2, "Matches: %zu", filtered_processes.size());
+    }
+    
     wrefresh(w);
 }
 
@@ -586,7 +686,7 @@ void ActivityMonitor::run() {
         displayCPUInfo();
         displayMemoryInfo();
         displayDiskInfo();
-        displayNetworkInfo();
+        displayDiskIOInfo();
         displayProcessInfo();
         displayAlert();
 
@@ -600,7 +700,7 @@ void ActivityMonitor::run() {
     if (cpu_win) delwin(toWin(cpu_win));
     if (mem_win) delwin(toWin(mem_win));
     if (disk_win) delwin(toWin(disk_win));
-    if (network_win) delwin(toWin(network_win));
+    if (diskio_win) delwin(toWin(diskio_win));
     if (process_win) delwin(toWin(process_win));
     endwin();
 }

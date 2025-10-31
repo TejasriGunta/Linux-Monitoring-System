@@ -33,6 +33,8 @@ void ActivityMonitor::setConfig(const MonitorConfig& cfg) {
     updateProcessInfo();
     updateMemoryStats();
     updateDiskLatency();
+    updateDiskIOInfo();   // Initialize disk I/O baseline
+    updateSystemInfo();   // Initialize system info
 
     if (config.debug_mode) debugLog("Configuration set");
 }
@@ -44,7 +46,7 @@ void ActivityMonitor::collectData() {
     updateProcessInfo();
     updateMemoryStats();
     updateDiskLatency();
-    updateNetworkInfo();
+    updateDiskIOInfo();
     updateTempInfo();
     updateSystemInfo();
 }
@@ -306,55 +308,88 @@ void ActivityMonitor::updateDiskLatency() {
 }
 
 // Read network totals from /proc/net/dev and compute KB/s rates
-void ActivityMonitor::updateNetworkInfo() {
-    std::ifstream f("/proc/net/dev");
+void ActivityMonitor::updateDiskIOInfo() {
+    // Read /proc/diskstats for all disks
+    std::ifstream f("/proc/diskstats");
     if (!f) return;
+    
+    unsigned long long total_reads = 0, total_writes = 0;
+    unsigned long long total_read_sectors = 0, total_write_sectors = 0;
+    unsigned long long total_io_ticks = 0;
+    
     std::string line;
-    // skip headers
-    std::getline(f, line);
-    std::getline(f, line);
-
-    unsigned long long total_rx = 0, total_tx = 0;
     while (std::getline(f, line)) {
         std::istringstream iss(line);
-        std::string iface;
-        unsigned long long rx_bytes, tx_bytes;
-        if (!(iss >> iface)) continue;
-        if (!iface.empty() && iface.back() == ':') iface.pop_back();
-        iss >> rx_bytes;
-        // skip 7 fields to tx
-        for (int i = 0; i < 7; ++i) { unsigned long long tmp; iss >> tmp; }
-        iss >> tx_bytes;
-        total_rx += rx_bytes;
-        total_tx += tx_bytes;
+        int major, minor;
+        std::string device_name;
+        unsigned long long reads, read_merges, read_sectors, read_ms;
+        unsigned long long writes, write_merges, write_sectors, write_ms;
+        unsigned long long ios_in_progress, io_ms, weighted_io_ms;
+        
+        // Parse /proc/diskstats format
+        if (!(iss >> major >> minor >> device_name >> reads >> read_merges 
+              >> read_sectors >> read_ms >> writes >> write_merges 
+              >> write_sectors >> write_ms >> ios_in_progress 
+              >> io_ms >> weighted_io_ms)) {
+            continue;
+        }
+        
+        // Skip loop devices and partitions, focus on main disks (sda, nvme0n1, etc.)
+        if (device_name.find("loop") != std::string::npos || 
+            device_name.find("ram") != std::string::npos ||
+            (device_name.size() > 3 && std::isdigit(device_name.back()))) {
+            continue;
+        }
+        
+        total_reads += reads;
+        total_writes += writes;
+        total_read_sectors += read_sectors;
+        total_write_sectors += write_sectors;
+        total_io_ticks += io_ms;
     }
-
-    // calculate rates using last_update
+    
+    // Calculate rates using time delta
     auto now = std::chrono::high_resolution_clock::now();
-    static auto prev_time = last_update;
+    static auto prev_time = std::chrono::high_resolution_clock::now();
     double seconds = std::chrono::duration<double>(now - prev_time).count();
-    if (seconds <= 0) seconds = 1.0;
-
-    float rx_kbps = 0.0f, tx_kbps = 0.0f;
-    if (prev_net_rx != 0 && prev_net_tx != 0) {
-        rx_kbps = static_cast<float>((total_rx - prev_net_rx) / 1024.0 / seconds);
-        tx_kbps = static_cast<float>((total_tx - prev_net_tx) / 1024.0 / seconds);
+    if (seconds <= 0 || seconds > 10.0) seconds = 1.0; // Sanity check
+    
+    // Calculate read/write rates
+    if (diskio_info.prev_reads > 0) {
+        // Sector size is typically 512 bytes
+        unsigned long long read_bytes = (total_read_sectors - diskio_info.prev_read_sectors) * 512;
+        unsigned long long write_bytes = (total_write_sectors - diskio_info.prev_write_sectors) * 512;
+        
+        diskio_info.read_mb_per_sec = static_cast<float>(read_bytes / seconds / (1024.0 * 1024.0));
+        diskio_info.write_mb_per_sec = static_cast<float>(write_bytes / seconds / (1024.0 * 1024.0));
+        
+        diskio_info.read_ops_per_sec = static_cast<float>((total_reads - diskio_info.prev_reads) / seconds);
+        diskio_info.write_ops_per_sec = static_cast<float>((total_writes - diskio_info.prev_writes) / seconds);
+        
+        // I/O busy percentage (io_ticks is in milliseconds)
+        unsigned long long io_delta = total_io_ticks - diskio_info.prev_io_ticks;
+        diskio_info.io_busy_percent = std::min(100.0f, static_cast<float>(io_delta / (seconds * 10.0)));
+    } else {
+        diskio_info.read_mb_per_sec = 0.0f;
+        diskio_info.write_mb_per_sec = 0.0f;
+        diskio_info.read_ops_per_sec = 0.0f;
+        diskio_info.write_ops_per_sec = 0.0f;
+        diskio_info.io_busy_percent = 0.0f;
     }
-
-    prev_net_rx = total_rx;
-    prev_net_tx = total_tx;
+    
+    // Update previous values
+    diskio_info.prev_reads = total_reads;
+    diskio_info.prev_writes = total_writes;
+    diskio_info.prev_read_sectors = total_read_sectors;
+    diskio_info.prev_write_sectors = total_write_sectors;
+    diskio_info.prev_io_ticks = total_io_ticks;
     prev_time = now;
-
-    // store current absolute totals and session start if first
-    curr_net_rx_bytes = total_rx;
-    curr_net_tx_bytes = total_tx;
-    if (net_start_rx == 0) net_start_rx = total_rx;
-    if (net_start_tx == 0) net_start_tx = total_tx;
-
-    if (net_rx_history.size() >= history_length) net_rx_history.erase(net_rx_history.begin());
-    if (net_tx_history.size() >= history_length) net_tx_history.erase(net_tx_history.begin());
-    net_rx_history.push_back(rx_kbps);
-    net_tx_history.push_back(tx_kbps);
+    
+    // Store history
+    if (diskio_read_history.size() >= history_length) diskio_read_history.erase(diskio_read_history.begin());
+    if (diskio_write_history.size() >= history_length) diskio_write_history.erase(diskio_write_history.begin());
+    diskio_read_history.push_back(diskio_info.read_mb_per_sec);
+    diskio_write_history.push_back(diskio_info.write_mb_per_sec);
 }
 
 // Read thermal sensors if available (/sys/class/thermal)
@@ -508,45 +543,91 @@ void ActivityMonitor::killHighestCPUProcess() {
 }
 
 void ActivityMonitor::handleInput(int ch) {
+    // Handle search mode input
+    if (search_mode) {
+        if (ch == 27) { // ESC key
+            search_mode = false;
+            search_query = "";
+            process_selected = 0;
+            process_list_offset = 0;
+            return;
+        } else if (ch == '\n' || ch == KEY_ENTER || ch == 10) { // Enter key
+            search_mode = false;
+            return;
+        } else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) { // Backspace
+            if (!search_query.empty()) {
+                search_query.pop_back();
+                process_selected = 0;
+                process_list_offset = 0;
+            }
+            return;
+        } else if (ch >= 32 && ch <= 126) { // Printable characters
+            search_query += (char)ch;
+            process_selected = 0;
+            process_list_offset = 0;
+            return;
+        }
+        return;
+    }
+    
+    // Normal mode input
     switch (ch) {
         case 'q': running = false; break;
         case 'r': collectData(); break;
+        case '/': // Enter search mode
+        case 's':
+            search_mode = true;
+            search_query = "";
+            process_selected = 0;
+            process_list_offset = 0;
+            break;
         case 'k': {
             // kill selected process if any
-            if (!processes.empty() && process_selected >= 0 && process_selected < (int)processes.size()) {
-                int pid = processes[process_selected].pid;
-                std::ostringstream oss; oss << "Kill process " << pid << " (" << processes[process_selected].name << ")?";
+            auto& proc_list = search_query.empty() ? processes : filtered_processes;
+            if (!proc_list.empty() && process_selected >= 0 && process_selected < (int)proc_list.size()) {
+                int pid = proc_list[process_selected].pid;
+                std::ostringstream oss; oss << "Kill process " << pid << " (" << proc_list[process_selected].name << ")?";
                 if (displayConfirmationDialog(oss.str())) killProcess(pid);
             }
             break;
         }
         case 'c': process_sort_type = 0; sortProcesses(); break;
         case 'm': process_sort_type = 1; sortProcesses(); break;
-        case KEY_UP:
+        case KEY_UP: {
+            auto& proc_list = search_query.empty() ? processes : filtered_processes;
             if (process_selected > 0) {
                 process_selected--;
                 if (process_selected < process_list_offset) process_list_offset = process_selected;
             }
             break;
-        case KEY_DOWN:
-            if (process_selected < (int)processes.size() - 1) {
+        }
+        case KEY_DOWN: {
+            auto& proc_list = search_query.empty() ? processes : filtered_processes;
+            if (process_selected < (int)proc_list.size() - 1) {
                 process_selected++;
                 int rows = terminal_height / 2 - 3;
                 if (process_selected >= process_list_offset + rows) process_list_offset = process_selected - rows + 1;
             }
             break;
+        }
         case KEY_PPAGE:
             process_list_offset = std::max(0, process_list_offset - 10);
             process_selected = std::max(0, process_selected - 10);
             break;
-        case KEY_NPAGE:
-            process_list_offset = std::min(std::max(0, (int)processes.size()-1), process_list_offset + 10);
-            process_selected = std::min((int)processes.size()-1, process_selected + 10);
+        case KEY_NPAGE: {
+            auto& proc_list = search_query.empty() ? processes : filtered_processes;
+            process_list_offset = std::min(std::max(0, (int)proc_list.size()-1), process_list_offset + 10);
+            process_selected = std::min((int)proc_list.size()-1, process_selected + 10);
             break;
+        }
         case KEY_HOME:
             process_list_offset = 0; process_selected = 0; break;
-        case KEY_END:
-            process_list_offset = std::max(0, (int)processes.size() - 1); process_selected = std::max(0, (int)processes.size() - 1); break;
+        case KEY_END: {
+            auto& proc_list = search_query.empty() ? processes : filtered_processes;
+            process_list_offset = std::max(0, (int)proc_list.size() - 1); 
+            process_selected = std::max(0, (int)proc_list.size() - 1); 
+            break;
+        }
         default: break;
     }
 }

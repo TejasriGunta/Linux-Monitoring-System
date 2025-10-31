@@ -1,17 +1,17 @@
 # Linux Activity Monitor
 
-A real-time terminal-based system monitoring tool built with C++ and ncurses. Displays comprehensive system metrics including CPU usage per core, memory (main + swap), disk usage, network statistics, system information, and process management.
+A real-time terminal-based system monitoring tool built with C++ and ncurses. Displays comprehensive system metrics including CPU usage per core, memory (main + swap), disk usage, disk I/O statistics, system information, and process management.
 
 ![Activity Monitor Screenshot](screenshot.png)
 
 ## Features
 
 ### 📊 Multi-Panel Dashboard
-- **CPU Usage**: Per-core dot graph with color-coded history and real-time percentages
+- **CPU Usage**: Stacked per-core visualization with individual bands for each core, showing usage variations within each core's range
 - **System Info**: Uptime, load average, context switches/sec, interrupts/sec
 - **Disk Usage**: Mounted filesystems with used/free space
 - **Memory Usage**: Dual-line graph showing Main (cyan) and Swap (yellow) memory with dynamic scaling
-- **Network Usage**: Real-time RX/TX rates with horizontal bar graphs and session totals
+- **Disk I/O**: Real-time read/write MB/s and IOPS with horizontal bar graphs, I/O busy percentage
 - **Process Table**: Sortable list with PID, name, CPU%, and memory%
 
 ### 🎮 Interactive Controls
@@ -27,16 +27,18 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
 ### 🎨 Visual Features
 - Color-coded metrics (green/yellow/red based on thresholds)
 - Real-time graphs with dot plotting for historical data
+- **Stacked CPU visualization**: Each core gets its own horizontal band for better variation visibility
 - Responsive layout adapting to terminal size
 - Load average color coding based on per-core utilization
-- Separate bars for network RX (cyan) and TX (red)
+- Separate bars for disk I/O read (cyan) and write (red)
 
 ### ⚙️ Advanced Features
 - Optional physical CPU core aggregation (pairs logical CPUs)
 - Graceful process termination (SIGTERM → SIGKILL with wait)
-- Session-based network totals tracking
+- **Stacked CPU bands**: Individual visualization bands for each core to show micro-variations
 - Dynamic graph scaling for better visibility
 - 120-sample history buffers for smooth trends
+- Real-time disk I/O monitoring from `/proc/diskstats`
 
 ## Installation
 
@@ -143,7 +145,7 @@ activity_monitor/
 - `/proc/stat` - CPU usage per core, context switches, interrupts
 - `/proc/meminfo` - Memory and swap statistics
 - `/proc/mounts` - Mounted filesystems
-- `/proc/net/dev` - Network interface statistics
+- `/proc/diskstats` - Disk I/O statistics (reads, writes, sectors, I/O ticks)
 - `/proc/<pid>/stat` - Per-process CPU and memory
 - `/proc/<pid>/status` - Process details
 - `/proc/uptime` - System uptime
@@ -154,9 +156,9 @@ activity_monitor/
 - **CPUInfo**: Per-core and total CPU usage tracking
 - **MemoryInfo**: Main memory and swap statistics
 - **DiskInfo**: Per-filesystem usage information
+- **DiskIOInfo**: Real-time disk I/O rates (MB/s, IOPS, busy%)
 - **Process**: Per-process metrics (PID, name, CPU%, mem%)
 - **SystemInfo**: Uptime, load average, system counters
-- **NetworkInfo**: RX/TX bytes and rates with history
 
 ## Technical Details
 
@@ -165,7 +167,8 @@ activity_monitor/
 - Calculates delta between samples for accurate percentages
 - Optional aggregation of logical cores into physical cores
 - 120-sample rolling history for graph plotting
-- Absolute positioning prevents graph shifting
+- **Stacked band visualization**: Each core (P0-P5) gets its own horizontal band with labeled separation
+- Individual core variations visible within each band's range
 
 ### Memory Monitoring
 - Dual-line graph with dynamic Y-axis scaling
@@ -173,11 +176,14 @@ activity_monitor/
 - Automatic scale adjustment to keep both lines visible
 - Color-coded: cyan for main, yellow for swap
 
-### Network Monitoring
-- Tracks total RX/TX bytes since application start
-- Computes per-second rates from deltas
-- Horizontal bar graphs scaled to maximum observed rate
-- Separate session totals and instantaneous rates
+### Disk I/O Monitoring
+- Reads from `/proc/diskstats` for all physical disks (excluding loop/ram/partitions)
+- Calculates read/write rates in MB/s from sector deltas (512 bytes/sector)
+- Tracks read/write operations per second (IOPS)
+- Computes I/O busy percentage from I/O ticks
+- Horizontal bar graphs scaled to maximum observed rate (minimum 10 MB/s scale)
+- Color-coded busy percentage: green (<50%), yellow (<80%), red (≥80%)
+- Separate bars for read (cyan) and write (red) operations
 
 ### Process Management
 - Sorts by CPU or memory usage on demand
@@ -219,9 +225,24 @@ stty sane
 - Try resizing terminal window
 - Check that terminal supports extended ASCII (ACS_BULLET, ACS_CKBOARD)
 
+## Recent Updates
+
+### v2.0 - Disk I/O & Enhanced CPU Visualization
+- ✅ **Replaced network monitoring with disk I/O statistics**
+  - Real-time MB/s read/write rates
+  - IOPS (I/O operations per second)
+  - Busy percentage with color coding
+  - Horizontal bar graphs for read/write visualization
+- ✅ **Stacked CPU visualization**
+  - Each core gets its own horizontal band
+  - Better visibility of micro-variations (e.g., 8.1% → 8.5%)
+  - Labeled core separators (P0, P1, etc.)
+  - Color-coded per-core history tracking
+
 ## Future Enhancements
 
 - [ ] Per-process CPU% using sysconf(_SC_CLK_TCK) and precise jiffies
+- [ ] Per-process I/O statistics from `/proc/<pid>/io`
 - [ ] GPU monitoring (NVIDIA/AMD)
 - [ ] Configurable color themes
 - [ ] Export metrics to CSV/JSON
@@ -230,6 +251,7 @@ stty sane
 - [ ] Configuration file support (~/.activity_monitor.conf)
 - [ ] Mouse support for clicking processes
 - [ ] Detailed process view (threads, open files, connections)
+- [ ] Network monitoring toggle (optional restore)
 
 ## Contributing
 

@@ -75,6 +75,19 @@ struct SystemInfo {
     float interrupts_per_sec = 0.0f;
 };
 
+struct DiskIOInfo {
+    float read_mb_per_sec = 0.0f;
+    float write_mb_per_sec = 0.0f;
+    float read_ops_per_sec = 0.0f;
+    float write_ops_per_sec = 0.0f;
+    float io_busy_percent = 0.0f;
+    unsigned long long prev_reads = 0;
+    unsigned long long prev_writes = 0;
+    unsigned long long prev_read_sectors = 0;
+    unsigned long long prev_write_sectors = 0;
+    unsigned long long prev_io_ticks = 0;
+};
+
 class ActivityMonitor {
 public:
     ActivityMonitor();
@@ -95,9 +108,9 @@ public:
     void updateProcessInfo();
     void updateMemoryStats();
     void updateDiskLatency();
-    void updateNetworkInfo();
     void updateTempInfo();
     void updateSystemInfo();
+    void updateDiskIOInfo();
 
     // Helpers
     std::string formatSize(unsigned long size_kb);
@@ -110,8 +123,8 @@ public:
     void displayCPUInfo();
     void displayMemoryInfo();
     void displayDiskInfo();
-    void displayNetworkInfo();
     void displaySystemInfo();
+    void displayDiskIOInfo();
     void displayProcessInfo();
     void displayAlert();
     bool displayConfirmationDialog(const std::string& message);
@@ -133,6 +146,7 @@ private:
     CPUInfo cpu_info;
     MemoryInfo memory_info;
     SystemInfo system_info;
+    DiskIOInfo diskio_info;
     std::vector<DiskInfo> disk_info;
     std::vector<Process> processes;
 
@@ -143,15 +157,9 @@ private:
     std::vector<float> mem_history;
     std::vector<float> swap_history;
 
-    // Network stats (bytes)
-    unsigned long long prev_net_rx = 0;
-    unsigned long long prev_net_tx = 0;
-    unsigned long long net_start_rx = 0;
-    unsigned long long net_start_tx = 0;
-    unsigned long long curr_net_rx_bytes = 0;
-    unsigned long long curr_net_tx_bytes = 0;
-    std::vector<float> net_rx_history; // KB/s
-    std::vector<float> net_tx_history; // KB/s
+    // Disk I/O history
+    std::vector<float> diskio_read_history;  // MB/s
+    std::vector<float> diskio_write_history; // MB/s
 
     // Temperatures (label, degC)
     std::vector<std::pair<std::string, float>> temperatures;
@@ -161,7 +169,7 @@ private:
     void* cpu_win = nullptr;
     void* mem_win = nullptr;
     void* disk_win = nullptr;
-    void* network_win = nullptr;
+    void* diskio_win = nullptr;
     void* process_win = nullptr;
     void* alert_win = nullptr;
 
@@ -169,7 +177,11 @@ private:
     int process_sort_type = 0; // 0 = CPU, 1 = memory
     int process_list_offset = 0;
     int process_selected = 0; // index in processes vector
-
+    
+    // Search functionality
+    bool search_mode = false;
+    std::string search_query = "";
+    std::vector<Process> filtered_processes;
 
     int terminal_height = 24;
     int terminal_width = 80;
