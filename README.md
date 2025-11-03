@@ -8,7 +8,7 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
 ## Features
 
 ### 📊 Multi-Panel Dashboard
-- **CPU Usage**: Stacked per-core visualization with individual bands for each core, showing usage variations within each core's range
+- **CPU Usage**: Per-core visualization with color-coded dots and dynamic Y-axis scaling for micro-variations (0.1% precision)
 - **System Info**: Uptime, load average, context switches/sec, interrupts/sec
 - **Disk Usage**: Mounted filesystems with used/free space
 - **Memory Usage**: Dual-line graph showing Main (cyan) and Swap (yellow) memory with dynamic scaling
@@ -26,8 +26,8 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
 
 ### 🎨 Visual Features
 - Color-coded metrics (green/yellow/red based on thresholds)
-- Real-time graphs with dot plotting for historical data
-- **Stacked CPU visualization**: Each core gets its own horizontal band for better variation visibility
+- Real-time graphs with block plotting for historical data
+- **Dynamic CPU scaling**: Automatically zooms to show 0.1% variations (e.g., 8.0%-8.5% range)
 - Responsive layout adapting to terminal size
 - Load average color coding based on per-core utilization
 - Separate bars for disk I/O read (cyan) and write (red)
@@ -35,10 +35,11 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
 ### ⚙️ Advanced Features
 - Optional physical CPU core aggregation (pairs logical CPUs)
 - Graceful process termination (SIGTERM → SIGKILL with wait)
-- **Stacked CPU bands**: Individual visualization bands for each core to show micro-variations
-- Dynamic graph scaling for better visibility
+- **Intelligent CPU scaling**: Automatically adjusts Y-axis to nearest 0.5% range for micro-variation visibility
+- Dynamic graph scaling across all panels for better visibility
 - 120-sample history buffers for smooth trends
 - Real-time disk I/O monitoring from `/proc/diskstats`
+- Process search and filtering capability
 
 ## Installation
 
@@ -102,30 +103,6 @@ Options:
 ./activity_monitor -d
 ```
 
-## WSL-Specific Notes
-
-### Running in WSL
-1. Open your WSL distribution (Ubuntu, Debian, etc.)
-2. Navigate to the project directory
-3. Build and run inside WSL terminal (not PowerShell)
-
-```bash
-# From WSL terminal
-cd /mnt/c/Users/YourName/Desktop/OS_Project-trail2/activity_monitor
-make
-./activity_monitor
-```
-
-### Launching from PowerShell
-```powershell
-wsl ./activity_monitor
-```
-
-### Known Limitations in WSL
-- **Temperature sensors**: `/sys/class/thermal` not available in WSL (removed from display)
-- **Some hardware metrics**: Limited compared to native Linux
-- **Terminal compatibility**: Use Windows Terminal or WSL-native terminal for best rendering
-
 ## Architecture
 
 ### Project Structure
@@ -167,8 +144,9 @@ activity_monitor/
 - Calculates delta between samples for accurate percentages
 - Optional aggregation of logical cores into physical cores
 - 120-sample rolling history for graph plotting
-- **Stacked band visualization**: Each core (P0-P5) gets its own horizontal band with labeled separation
-- Individual core variations visible within each band's range
+- **Dynamic Y-axis scaling**: Automatically rounds to nearest 0.5% range (e.g., 8.0%-8.5%)
+- Makes 0.1% CPU variations clearly visible with color-coded per-core blocks
+- Each core distinguished by unique color with legend showing current usage
 
 ### Memory Monitoring
 - Dual-line graph with dynamic Y-axis scaling
@@ -200,75 +178,6 @@ activity_monitor/
 - **History depth**: 120 samples per metric
 - **Max processes displayed**: Adapts to terminal height
 
-## Troubleshooting
-
-### ncurses rendering issues
-```bash
-# Set TERM environment variable
-export TERM=xterm-256color
-./activity_monitor
-```
-
-### Permission errors for /proc
-Run with appropriate permissions or check that /proc is mounted.
-
-### Display corruption after exit
-```bash
-# Reset terminal
-reset
-# or
-stty sane
-```
-
-### Graph not visible
-- Ensure terminal is at least 80x24 characters
-- Try resizing terminal window
-- Check that terminal supports extended ASCII (ACS_BULLET, ACS_CKBOARD)
-
-## Recent Updates
-
-### v2.0 - Disk I/O & Enhanced CPU Visualization
-- ✅ **Replaced network monitoring with disk I/O statistics**
-  - Real-time MB/s read/write rates
-  - IOPS (I/O operations per second)
-  - Busy percentage with color coding
-  - Horizontal bar graphs for read/write visualization
-- ✅ **Stacked CPU visualization**
-  - Each core gets its own horizontal band
-  - Better visibility of micro-variations (e.g., 8.1% → 8.5%)
-  - Labeled core separators (P0, P1, etc.)
-  - Color-coded per-core history tracking
-- ✅ **Process search feature**
-  - Press 's' to enter search mode
-  - Type to filter processes by name
-  - Real-time filtering as you type
-  - ESC to clear search and exit search mode
-
-## Future Enhancements
-
-- [ ] Per-process CPU% using sysconf(_SC_CLK_TCK) and precise jiffies
-- [ ] Per-process I/O statistics from `/proc/<pid>/io`
-- [ ] GPU monitoring (NVIDIA/AMD)
-- [ ] Configurable color themes
-- [ ] Export metrics to CSV/JSON
-- [ ] System notifications for threshold alerts
-- [ ] Configuration file support (~/.activity_monitor.conf)
-- [ ] Mouse support for clicking processes
-- [ ] Detailed process view (threads, open files, connections)
-- [ ] Network monitoring toggle (optional restore)
-
-## Contributing
-
-Contributions welcome! Areas of interest:
-- More accurate per-process CPU calculations
-- Additional graph types (stacked area, heatmaps)
-- Plugin system for custom metrics
-- Network connection tracking
-- I/O statistics per process
-
-## License
-
-MIT License - feel free to use and modify.
 
 ## Acknowledgments
 

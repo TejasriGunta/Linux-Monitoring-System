@@ -43,30 +43,30 @@ void ActivityMonitor::initializeWindows() {
     // Layout matching user diagram:
     // Row 1: CPU (full width) with legend on right
     // Row 2: System Info (left ~40%) | Disk (right ~60%)
-    // Row 3: Process (left ~60%) | Memory + Network stacked (right ~40%)
+    // Row 3: Process (left ~60%) | Memory + Disk I/O stacked (right ~40%)
     
-    int cpu_h = std::max(6, terminal_height / 4); // Reduced CPU height to give more to memory/network
-    int mid_h = std::max(8, (terminal_height - cpu_h) / 3); // Increased for system info spacing
+    int cpu_h = std::max(6, terminal_height / 4);
+    int mid_h = std::max(8, (terminal_height - cpu_h) / 3);
     int bottom_h = terminal_height - cpu_h - mid_h - 2;
 
     // Middle row split: System Info left, Disk right
     int sysinfo_w = std::max(20, (content_w * 4) / 10); // 40% for system info
     int disk_w = content_w - sysinfo_w - 1;
 
-    // Bottom row split: Process left, Memory+Network right
+    // Bottom row split: Process left, Memory+Disk I/O right
     int process_w = std::max(30, (content_w * 6) / 10); // 60% for processes
     int right_col_w = content_w - process_w - 1;
     
-    // Split bottom right into Memory (top) and Network (bottom)
+    // Split bottom right into Memory (top) and Disk I/O (bottom)
     int mem_h = std::max(5, bottom_h / 2);
-    int network_h = bottom_h - mem_h - 1;
+    int diskio_h = bottom_h - mem_h - 1;
 
     cpu_win = newwin(cpu_h, content_w, 0, margin);
     sysinfo_win = newwin(mid_h, sysinfo_w, cpu_h, margin);
     disk_win = newwin(mid_h, disk_w, cpu_h, margin + sysinfo_w + 1);
     process_win = newwin(bottom_h, process_w, cpu_h + mid_h, margin);
     mem_win = newwin(mem_h, right_col_w, cpu_h + mid_h, margin + process_w + 1);
-    diskio_win = newwin(network_h, right_col_w, cpu_h + mid_h + mem_h + 1, margin + process_w + 1);
+    diskio_win = newwin(diskio_h, right_col_w, cpu_h + mid_h + mem_h + 1, margin + process_w + 1);
 }
 
 void ActivityMonitor::resizeWindows() {
@@ -199,19 +199,18 @@ void ActivityMonitor::displayCPUInfo() {
         for (int gx = 0; gx < graph_w; ++gx)
             mvwaddch(w, graph_base + gy, graph_x + gx, ' ');
 
-    int total_len = (int)total_history.size();
-    int start_total = std::max(0, total_len - graph_w);
-    (void)start_total; // suppress unused warning (kept for future use)
-
-    // Dynamic Y-axis scaling: find min/max across visible history to zoom into actual range
+    // Dynamic Y-axis scaling: find min/max across all cores' visible history
     float min_val = 100.0f;
     float max_val = 0.0f;
+    
     for (int pi = 0; pi < (int)plot_cores.size(); ++pi) {
         int c = plot_cores[pi];
         const std::vector<float>& hist = (c < (int)display_cpu_history.size()) ? display_cpu_history[c] : std::vector<float>();
         if (hist.empty()) continue;
+        
         int hist_len = (int)hist.size();
         int samples_to_draw = std::min(graph_w, hist_len);
+        
         for (int x = 0; x < samples_to_draw; ++x) {
             int hist_idx = hist_len - samples_to_draw + x;
             if (hist_idx >= 0 && hist_idx < hist_len) {
@@ -222,80 +221,56 @@ void ActivityMonitor::displayCPUInfo() {
         }
     }
     
-    // Add padding to range for better visibility (10% padding on each side)
-    float range = max_val - min_val;
-    if (range < 1.0f) range = 1.0f; // minimum 1% range for tiny variations
-    float padding = range * 0.1f;
-    min_val = std::max(0.0f, min_val - padding);
-    max_val = std::min(100.0f, max_val + padding);
+    // Round down min to nearest 0.5% and round up max to nearest 0.5%
+    // This creates a tight range that shows 0.1% variations clearly
+    min_val = std::floor(min_val * 2.0f) / 2.0f; // rounds down to nearest 0.5
+    max_val = std::ceil(max_val * 2.0f) / 2.0f;   // rounds up to nearest 0.5
     
-    // Ensure minimum range for visibility
-    if (max_val - min_val < 2.0f) {
-        float center = (max_val + min_val) / 2.0f;
-        min_val = std::max(0.0f, center - 1.0f);
-        max_val = std::min(100.0f, center + 1.0f);
+    // Ensure minimum 0.5% range for very flat usage
+    if (max_val - min_val < 0.5f) {
+        max_val = min_val + 0.5f;
     }
-
-    // Display scale info
-    mvwprintw(w, graph_base, graph_x, "%.1f%%", max_val);
-    mvwprintw(w, graph_base + graph_h - 1, graph_x, "%.1f%%", min_val);
-
-    // STACKED VISUALIZATION: Each core gets its own horizontal band for better separation
-    int num_cores = (int)plot_cores.size();
-    if (num_cores > 0) {
-        int band_height = graph_h / num_cores;
-        if (band_height < 1) band_height = 1;
+    
+    // Cap the range to reasonable bounds
+    if (min_val < 0.0f) min_val = 0.0f;
+    if (max_val > 100.0f) max_val = 100.0f;
+    
+    // Draw all cores overlapping on same graph with dynamic scaling
+    for (int pi = 0; pi < (int)plot_cores.size(); ++pi) {
+        int c = plot_cores[pi];
+        int col = 6 + (c % 8);
+        static const std::vector<float> empty_vec2;
+        const std::vector<float>& hist = (c < (int)display_cpu_history.size()) ? display_cpu_history[c] : empty_vec2;
+        if (hist.empty()) continue;
         
-        for (int pi = 0; pi < num_cores; ++pi) {
-            int c = plot_cores[pi];
-            int col = 6 + (c % 8);
-            static const std::vector<float> empty_vec2;
-            const std::vector<float>& hist = (c < (int)display_cpu_history.size()) ? display_cpu_history[c] : empty_vec2;
-            if (hist.empty()) continue;
+        // Map latest history samples to rightmost columns
+        int hist_len = (int)hist.size();
+        int samples_to_draw = std::min(graph_w, hist_len);
+        
+        for (int x = 0; x < samples_to_draw; ++x) {
+            int hist_idx = hist_len - samples_to_draw + x;
+            if (hist_idx < 0 || hist_idx >= hist_len) continue;
             
-            // Calculate band position for this core
-            int band_base = graph_base + pi * band_height;
-            int band_h = (pi == num_cores - 1) ? (graph_h - pi * band_height) : band_height;
+            float val = hist[hist_idx]; // raw sample (0-100)
             
-            // Draw core label on left
-            mvwprintw(w, band_base + band_h / 2, graph_x - 3, "P%d", c);
-            
-            // Map latest history samples to rightmost columns
-            int hist_len = (int)hist.size();
-            int samples_to_draw = std::min(graph_w, hist_len);
-            
-            for (int x = 0; x < samples_to_draw; ++x) {
-                int hist_idx = hist_len - samples_to_draw + x;
-                if (hist_idx < 0 || hist_idx >= hist_len) continue;
-                
-                float val = hist[hist_idx]; // raw sample
-                
-                // Scale to visible range within this core's band
-                float scaled_val = (val - min_val) / (max_val - min_val) * 100.0f;
-                if (scaled_val < 0.0f) scaled_val = 0.0f;
-                if (scaled_val > 100.0f) scaled_val = 100.0f;
-                
-                // Map to this core's band (invert so higher values are at top of band)
-                int level = static_cast<int>(scaled_val / 100.0f * (band_h - 1) + 0.5f);
-                int row = band_base + (band_h - 1 - level);
-                
-                wattron(w, COLOR_PAIR(col) | A_BOLD);
-                mvwaddch(w, row, graph_x + x, ACS_BULLET);
-                wattroff(w, COLOR_PAIR(col) | A_BOLD);
+            // Scale value to the dynamic range
+            float scaled_percent = 0.0f;
+            if (max_val > min_val) {
+                scaled_percent = ((val - min_val) / (max_val - min_val)) * 100.0f;
             }
+            if (scaled_percent < 0.0f) scaled_percent = 0.0f;
+            if (scaled_percent > 100.0f) scaled_percent = 100.0f;
             
-            // Draw separator line between cores (except for last one)
-            if (pi < num_cores - 1) {
-                wattron(w, COLOR_PAIR(5)); // dim color for separator
-                for (int gx = 0; gx < graph_w; ++gx) {
-                    mvwaddch(w, band_base + band_h, graph_x + gx, ACS_HLINE);
-                }
-                wattroff(w, COLOR_PAIR(5));
-            }
+            // Map to graph height (inverted - higher values at top)
+            int level = static_cast<int>((scaled_percent / 100.0f) * (graph_h - 1) + 0.5f);
+            if (level >= graph_h) level = graph_h - 1;
+            int row = graph_base + (graph_h - 1 - level);
+            
+            wattron(w, COLOR_PAIR(col) | A_BOLD);
+            mvwaddch(w, row, graph_x + x, ACS_BULLET);
+            wattroff(w, COLOR_PAIR(col) | A_BOLD);
         }
     }
-
-    // (no total overlay) — keep graph as simple colored dots only
 
     wrefresh(w);
 }
