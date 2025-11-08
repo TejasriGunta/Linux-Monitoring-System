@@ -7,7 +7,7 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
 
 ## Features
 
-### 📊 Multi-Panel Dashboard
+###  Multi-Panel Dashboard
 - **CPU Usage**: Per-core visualization with color-coded dots and dynamic Y-axis scaling for relative micro-variations (0.1% precision) and 0-100% Y-axis scaling for overall magnitude variation.
 - **System Info**: Uptime, load average, context switches/sec, interrupts/sec.
 - **Disk Usage**: Mounted filesystems with used/free space.
@@ -16,7 +16,7 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
 - **Process Table**: Sortable list with PID, name, CPU%, and memory% and option to search or kill a process.
 
 
-### 🎮 Interactive Controls
+###  Interactive Controls
 - **q** - Quit the application
 - **r** - Force refresh display
 - **k** - Kill selected process (with confirmation dialog)
@@ -27,14 +27,14 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
           Toggle  between dynamic and 0-100 scaling of y-axis.
 
 
-### 🎨 Visual Features
+###  Visual Features
 - Color-coded metrics (green/yellow/red based on thresholds)
 - Real-time graphs with block plotting for historical data.
 - Responsive layout adapting to terminal size
 - Load average color coding based on per-core utilization
 - Separate bars for disk I/O read (cyan) and write (red)
 
-### ⚙️ Advanced Features
+###  Advanced Features
 - Optional physical CPU core aggregation (pairs logical CPUs)
 - Graceful process termination (SIGTERM → SIGKILL with wait)
 - **Intelligent CPU scaling**: Toggle provided to switch between dynamic scaling to 0-100% y-axis scaling(magnitude).
