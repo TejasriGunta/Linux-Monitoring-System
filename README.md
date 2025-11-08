@@ -8,12 +8,13 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
 ## Features
 
 ### 📊 Multi-Panel Dashboard
-- **CPU Usage**: Per-core visualization with color-coded dots and dynamic Y-axis scaling for micro-variations (0.1% precision)
-- **System Info**: Uptime, load average, context switches/sec, interrupts/sec
-- **Disk Usage**: Mounted filesystems with used/free space
-- **Memory Usage**: Dual-line graph showing Main (cyan) and Swap (yellow) memory with dynamic scaling
-- **Disk I/O**: Real-time read/write MB/s and IOPS with horizontal bar graphs, I/O busy percentage
-- **Process Table**: Sortable list with PID, name, CPU%, and memory%
+- **CPU Usage**: Per-core visualization with color-coded dots and dynamic Y-axis scaling for relative micro-variations (0.1% precision) and 0-100% Y-axis scaling for overall magnitude variation.
+- **System Info**: Uptime, load average, context switches/sec, interrupts/sec.
+- **Disk Usage**: Mounted filesystems with used/free space.
+- **Memory Usage**: Dual-line graph showing Main (cyan) and Swap (yellow) memory.
+- **Disk I/O**: Real-time read/write MB/s and IOPS with horizontal bar graphs, I/O busy percentage.
+- **Process Table**: Sortable list with PID, name, CPU%, and memory% and option to search or kill a process.
+
 
 ### 🎮 Interactive Controls
 - **q** - Quit the application
@@ -22,12 +23,13 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
 - **c** - Sort processes by CPU usage
 - **m** - Sort processes by memory usage
 - **PgUp/PgDn** - Fast scroll through processes
+- **t/z toggle** -Toggle  CPU graph from per-core to total  CPU usage with “t” .
+          Toggle  between dynamic and 0-100 scaling of y-axis.
 
 
 ### 🎨 Visual Features
 - Color-coded metrics (green/yellow/red based on thresholds)
-- Real-time graphs with block plotting for historical data
-- **Dynamic CPU scaling**: Automatically zooms to show 0.1% variations (e.g., 8.0%-8.5% range)
+- Real-time graphs with block plotting for historical data.
 - Responsive layout adapting to terminal size
 - Load average color coding based on per-core utilization
 - Separate bars for disk I/O read (cyan) and write (red)
@@ -35,7 +37,7 @@ A real-time terminal-based system monitoring tool built with C++ and ncurses. Di
 ### ⚙️ Advanced Features
 - Optional physical CPU core aggregation (pairs logical CPUs)
 - Graceful process termination (SIGTERM → SIGKILL with wait)
-- **Intelligent CPU scaling**: Automatically adjusts Y-axis to nearest 0.5% range for micro-variation visibility
+- **Intelligent CPU scaling**: Toggle provided to switch between dynamic scaling to 0-100% y-axis scaling(magnitude).
 - Dynamic graph scaling across all panels for better visibility
 - 120-sample history buffers for smooth trends
 - Real-time disk I/O monitoring from `/proc/diskstats`
@@ -128,40 +130,6 @@ activity_monitor/
 - `/proc/uptime` - System uptime
 - `/proc/loadavg` - Load averages (1, 5, 15 min)
 
-### Key Components
-- **MonitorConfig**: Configuration struct for refresh rate, thresholds, options
-- **CPUInfo**: Per-core and total CPU usage tracking
-- **MemoryInfo**: Main memory and swap statistics
-- **DiskInfo**: Per-filesystem usage information
-- **DiskIOInfo**: Real-time disk I/O rates (MB/s, IOPS, busy%)
-- **Process**: Per-process metrics (PID, name, CPU%, mem%)
-- **SystemInfo**: Uptime, load average, system counters
-
-## Technical Details
-
-### CPU Monitoring
-- Reads per-core statistics from `/proc/stat`
-- Calculates delta between samples for accurate percentages
-- Optional aggregation of logical cores into physical cores
-- 120-sample rolling history for graph plotting
-- **Dynamic Y-axis scaling**: Automatically rounds to nearest 0.5% range (e.g., 8.0%-8.5%)
-- Makes 0.1% CPU variations clearly visible with color-coded per-core blocks
-- Each core distinguished by unique color with legend showing current usage
-
-### Memory Monitoring
-- Dual-line graph with dynamic Y-axis scaling
-- Tracks both main memory and swap separately
-- Automatic scale adjustment to keep both lines visible
-- Color-coded: cyan for main, yellow for swap
-
-### Disk I/O Monitoring
-- Reads from `/proc/diskstats` for all physical disks (excluding loop/ram/partitions)
-- Calculates read/write rates in MB/s from sector deltas (512 bytes/sector)
-- Tracks read/write operations per second (IOPS)
-- Computes I/O busy percentage from I/O ticks
-- Horizontal bar graphs scaled to maximum observed rate (minimum 10 MB/s scale)
-- Color-coded busy percentage: green (<50%), yellow (<80%), red (≥80%)
-- Separate bars for read (cyan) and write (red) operations
 
 ### Process Management
 - Sorts by CPU or memory usage on demand
