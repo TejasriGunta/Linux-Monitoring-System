@@ -131,22 +131,6 @@ activity_monitor/
 - `/proc/loadavg` - Load averages (1, 5, 15 min)
 
 
-### Process Management
-- Sorts by CPU or memory usage on demand
-- Keyboard navigation with selection highlighting
-- Kill with confirmation dialog
-- Attempts SIGTERM first, then SIGKILL if needed
-- Wait period configurable (default 500ms)
-
-## Performance
-
-- **Memory footprint**: ~5-10 MB typical
-- **CPU overhead**: <1% on modern systems
-- **Refresh rate**: Configurable, default 1000ms
-- **History depth**: 120 samples per metric
-- **Max processes displayed**: Adapts to terminal height
-
-
 ## Acknowledgments
 
 Built using:
