@@ -159,116 +159,161 @@ void ActivityMonitor::displayCPUInfo() {
     std::vector<int> plot_cores;
     for (int i = 0; i < (int)usage_idx.size() && (int)plot_cores.size() < top_n; ++i) plot_cores.push_back(usage_idx[i].second);
 
-    // Draw boxed legend at top-right sorted by usage
+    // Draw legend depending on mode: per-core list vs single total box
     int lox = legend_x;
     int loy = 1;
-    int lg_h = std::max(3, (int)plot_cores.size() + 2);
     int lg_w = std::min(legend_w, wid - lox - 1);
-    if (lg_w > 10 && !plot_cores.empty()) {
-        WINDOW* lg = derwin(w, lg_h, lg_w, 0, lox);
-        box(lg, 0, 0);
-        wattron(lg, COLOR_PAIR(5)); mvwprintw(lg, 0, 2, " CPUs "); wattroff(lg, COLOR_PAIR(5));
-        for (int i = 0; i < (int)plot_cores.size(); ++i) {
-            int idx = plot_cores[i];
-            int colpair = 6 + (idx % 8);
-            float cur = display_core_usage[idx];
-            wattron(lg, COLOR_PAIR(colpair) | A_BOLD);
-                mvwaddch(lg, 1 + i, 1, ACS_BULLET);
-            wattroff(lg, COLOR_PAIR(colpair) | A_BOLD);
-            // label physical cores as Pn when aggregated, otherwise CPU
-            if (use_physical) mvwprintw(lg, 1 + i, 3, "P%-2d %5.1f%%", idx, cur);
-            else mvwprintw(lg, 1 + i, 3, "CPU%-2d %5.1f%%", idx, cur);
+    if (lg_w > 10) {
+        if (cpu_mode_per_core) {
+            int lg_h = std::max(3, (int)plot_cores.size() + 2);
+            if (!plot_cores.empty()) {
+                WINDOW* lg = derwin(w, lg_h, lg_w, 0, lox);
+                box(lg, 0, 0);
+                wattron(lg, COLOR_PAIR(5)); mvwprintw(lg, 0, 2, " CPUs "); wattroff(lg, COLOR_PAIR(5));
+                for (int i = 0; i < (int)plot_cores.size(); ++i) {
+                    int idx = plot_cores[i];
+                    int colpair = 6 + (idx % 8);
+                    float cur = display_core_usage[idx];
+                    wattron(lg, COLOR_PAIR(colpair) | A_BOLD);
+                        mvwaddch(lg, 1 + i, 1, ACS_BULLET);
+                    wattroff(lg, COLOR_PAIR(colpair) | A_BOLD);
+                    if (use_physical) mvwprintw(lg, 1 + i, 3, "P%-2d %5.1f%%", idx, cur);
+                    else mvwprintw(lg, 1 + i, 3, "CPU%-2d %5.1f%%", idx, cur);
+                }
+                mvwprintw(lg, std::max(1, lg_h-1), 3, "Total: %5.1f%%", cpu_info.total_usage);
+                wrefresh(lg);
+                delwin(lg);
+            }
+        } else {
+            int lg_h = 3;
+            WINDOW* lg = derwin(w, lg_h, lg_w, 0, lox);
+            box(lg, 0, 0);
+            wattron(lg, COLOR_PAIR(5)); mvwprintw(lg, 0, 2, " CPU Total "); wattroff(lg, COLOR_PAIR(5));
+            wattron(lg, COLOR_PAIR(11) | A_BOLD);
+            mvwaddch(lg, 1, 1, ACS_BULLET);
+            wattroff(lg, COLOR_PAIR(11) | A_BOLD);
+            mvwprintw(lg, 1, 3, "%5.1f%%", cpu_info.total_usage);
+            wrefresh(lg);
+            delwin(lg);
         }
-    mvwprintw(lg, lg_h-1, 3, "Total: %5.1f%%", cpu_info.total_usage);
-        wrefresh(lg);
-        delwin(lg);
-    } else {
-        mvwprintw(w, loy, graph_x + 12, "Total: %5.1f%%", cpu_info.total_usage);
     }
 
-    const float plot_threshold = 0.5f;
-    if (cpu_info.total_usage < plot_threshold) {
-        mvwprintw(w, graph_base + graph_h / 2,
-                  graph_x + std::max(0, graph_w / 2 - 4), "Idle");
-        wrefresh(w);
-        return;
-    }
+    // Always plot, even when usage is very low. Dynamic scaling will zoom in,
+    // so we don't short-circuit to an "Idle" label.
 
     // Clear graph area (we draw only per-core dots for a clean dot-dot graph)
     for (int gy = 0; gy < graph_h; ++gy)
         for (int gx = 0; gx < graph_w; ++gx)
             mvwaddch(w, graph_base + gy, graph_x + gx, ' ');
 
-    // Dynamic Y-axis scaling: find min/max across all cores' visible history
+    // Determine Y-axis range: consider either per-core histories or total history
     float min_val = 100.0f;
     float max_val = 0.0f;
-    
-    for (int pi = 0; pi < (int)plot_cores.size(); ++pi) {
-        int c = plot_cores[pi];
-        const std::vector<float>& hist = (c < (int)display_cpu_history.size()) ? display_cpu_history[c] : std::vector<float>();
-        if (hist.empty()) continue;
-        
-        int hist_len = (int)hist.size();
+    if (cpu_mode_per_core) {
+        for (int pi = 0; pi < (int)plot_cores.size(); ++pi) {
+            int c = plot_cores[pi];
+            const std::vector<float>& hist = (c < (int)display_cpu_history.size()) ? display_cpu_history[c] : std::vector<float>();
+            if (hist.empty()) continue;
+            int hist_len = (int)hist.size();
+            int samples_to_draw = std::min(graph_w, hist_len);
+            for (int x = 0; x < samples_to_draw; ++x) {
+                int hist_idx = hist_len - samples_to_draw + x;
+                if (hist_idx >= 0 && hist_idx < hist_len) {
+                    float val = hist[hist_idx];
+                    if (val > max_val) max_val = val;
+                    if (val < min_val) min_val = val;
+                }
+            }
+        }
+    } else {
+        int hist_len = (int)total_history.size();
         int samples_to_draw = std::min(graph_w, hist_len);
-        
         for (int x = 0; x < samples_to_draw; ++x) {
             int hist_idx = hist_len - samples_to_draw + x;
             if (hist_idx >= 0 && hist_idx < hist_len) {
-                float val = hist[hist_idx];
+                float val = total_history[hist_idx];
                 if (val > max_val) max_val = val;
                 if (val < min_val) min_val = val;
             }
         }
     }
     
-    // Round down min to nearest 0.5% and round up max to nearest 0.5%
-    // This creates a tight range that shows 0.1% variations clearly
-    min_val = std::floor(min_val * 2.0f) / 2.0f; // rounds down to nearest 0.5
-    max_val = std::ceil(max_val * 2.0f) / 2.0f;   // rounds up to nearest 0.5
-    
-    // Ensure minimum 0.5% range for very flat usage
-    if (max_val - min_val < 0.5f) {
-        max_val = min_val + 0.5f;
+    // If fixed scaling requested, use absolute 0-100% range; otherwise zoom to min/max
+    if (!cpu_zoom_dynamic) {
+        min_val = 0.0f;
+        max_val = 100.0f;
+    } else {
+        // Round down min to nearest 0.5% and round up max to nearest 0.5%
+        // This creates a tight range that shows 0.1% variations clearly
+        min_val = std::floor(min_val * 2.0f) / 2.0f; // rounds down to nearest 0.5
+        max_val = std::ceil(max_val * 2.0f) / 2.0f;   // rounds up to nearest 0.5
+
+        // Ensure minimum 0.5% range for very flat usage
+        if (max_val - min_val < 0.5f) {
+            max_val = min_val + 0.5f;
+        }
+
+        // Cap the range to reasonable bounds
+        if (min_val < 0.0f) min_val = 0.0f;
+        if (max_val > 100.0f) max_val = 100.0f;
+    }
+
+    // Subtle indicators (no numeric axis labels)
+    int label_y = std::max(h - 3, graph_base + graph_h);
+    if (label_y < h - 1) {
+        mvwprintw(w, label_y, graph_x, "[t] Mode: %s  |  [z] Scale: %s",
+                  cpu_mode_per_core ? "Per-core" : "Total",
+                  cpu_zoom_dynamic ? "Dyn" : "0-100");
     }
     
-    // Cap the range to reasonable bounds
-    if (min_val < 0.0f) min_val = 0.0f;
-    if (max_val > 100.0f) max_val = 100.0f;
-    
-    // Draw all cores overlapping on same graph with dynamic scaling
-    for (int pi = 0; pi < (int)plot_cores.size(); ++pi) {
-        int c = plot_cores[pi];
-        int col = 6 + (c % 8);
-        static const std::vector<float> empty_vec2;
-        const std::vector<float>& hist = (c < (int)display_cpu_history.size()) ? display_cpu_history[c] : empty_vec2;
-        if (hist.empty()) continue;
-        
-        // Map latest history samples to rightmost columns
-        int hist_len = (int)hist.size();
+    // Draw graph based on mode
+    if (cpu_mode_per_core) {
+        // Draw all cores overlapping on same graph
+        for (int pi = 0; pi < (int)plot_cores.size(); ++pi) {
+            int c = plot_cores[pi];
+            int col = 6 + (c % 8);
+            static const std::vector<float> empty_vec2;
+            const std::vector<float>& hist = (c < (int)display_cpu_history.size()) ? display_cpu_history[c] : empty_vec2;
+            if (hist.empty()) continue;
+            int hist_len = (int)hist.size();
+            int samples_to_draw = std::min(graph_w, hist_len);
+            for (int x = 0; x < samples_to_draw; ++x) {
+                int hist_idx = hist_len - samples_to_draw + x;
+                if (hist_idx < 0 || hist_idx >= hist_len) continue;
+                float val = hist[hist_idx];
+                float scaled_percent = 0.0f;
+                if (max_val > min_val) scaled_percent = ((val - min_val) / (max_val - min_val)) * 100.0f;
+                if (scaled_percent < 0.0f) scaled_percent = 0.0f;
+                if (scaled_percent > 100.0f) scaled_percent = 100.0f;
+                int level = static_cast<int>((scaled_percent / 100.0f) * (graph_h - 1) + 0.5f);
+                // Ensure non-zero values are at least one row high so they don't disappear on 0-100 scale
+                if (level == 0 && (val > min_val + 1e-3f)) level = 1;
+                if (level >= graph_h) level = graph_h - 1;
+                int row = graph_base + (graph_h - 1 - level);
+                wattron(w, COLOR_PAIR(col) | A_BOLD);
+                mvwaddch(w, row, graph_x + x, ACS_BULLET);
+                wattroff(w, COLOR_PAIR(col) | A_BOLD);
+            }
+        }
+    } else {
+        // Draw single total CPU line
+        int hist_len = (int)total_history.size();
         int samples_to_draw = std::min(graph_w, hist_len);
-        
         for (int x = 0; x < samples_to_draw; ++x) {
             int hist_idx = hist_len - samples_to_draw + x;
             if (hist_idx < 0 || hist_idx >= hist_len) continue;
-            
-            float val = hist[hist_idx]; // raw sample (0-100)
-            
-            // Scale value to the dynamic range
+            float val = total_history[hist_idx];
             float scaled_percent = 0.0f;
-            if (max_val > min_val) {
-                scaled_percent = ((val - min_val) / (max_val - min_val)) * 100.0f;
-            }
+            if (max_val > min_val) scaled_percent = ((val - min_val) / (max_val - min_val)) * 100.0f;
             if (scaled_percent < 0.0f) scaled_percent = 0.0f;
             if (scaled_percent > 100.0f) scaled_percent = 100.0f;
-            
-            // Map to graph height (inverted - higher values at top)
             int level = static_cast<int>((scaled_percent / 100.0f) * (graph_h - 1) + 0.5f);
+            if (level == 0 && (val > min_val + 1e-3f)) level = 1;
             if (level >= graph_h) level = graph_h - 1;
             int row = graph_base + (graph_h - 1 - level);
-            
-            wattron(w, COLOR_PAIR(col) | A_BOLD);
+            wattron(w, COLOR_PAIR(11) | A_BOLD);
             mvwaddch(w, row, graph_x + x, ACS_BULLET);
-            wattroff(w, COLOR_PAIR(col) | A_BOLD);
+            wattroff(w, COLOR_PAIR(11) | A_BOLD);
         }
     }
 

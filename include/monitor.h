@@ -189,6 +189,9 @@ private:
     // for CPU delta calculations
     std::vector<unsigned long long> prev_cpu_times;
     std::vector<unsigned long long> curr_cpu_times;
+    // Track idle (idle + iowait) per line in /proc/stat for accurate busy% per core
+    std::vector<unsigned long long> prev_idle_times;
+    std::vector<unsigned long long> curr_idle_times;
     std::unordered_map<int, unsigned long long> prev_proc_times;
 
     // sort helper
@@ -201,4 +204,11 @@ private:
     std::ofstream debug_file;
     // Terminal capabilities
     bool use_256_colors = false;
+
+    // UI behavior: when true, CPU graph auto-zooms to min/max range;
+    // when false, it uses fixed 0-100% scale (absolute values).
+    bool cpu_zoom_dynamic = false;
+
+    // CPU display mode: true = show per-core lines; false = show a single total CPU line
+    bool cpu_mode_per_core = true;
 };

@@ -59,18 +59,20 @@ void ActivityMonitor::updateCPUInfo() {
     std::string line;
     std::vector<unsigned long long> totals;
     std::vector<float> core_percentages;
+    std::vector<unsigned long long> idles; // idle + iowait per line (cpu, cpu0, ...)
 
     while (std::getline(f, line)) {
         if (line.rfind("cpu", 0) != 0) break;
         std::istringstream iss(line);
         std::string cpu_label;
         iss >> cpu_label;
-        unsigned long long user, nice, system, idle, iowait, irq, softirq, steal;
+    unsigned long long user, nice, system, idle, iowait, irq, softirq, steal;
         user = nice = system = idle = iowait = irq = softirq = steal = 0;
         iss >> user >> nice >> system >> idle >> iowait >> irq >> softirq >> steal;
         unsigned long long total = user + nice + system + idle + iowait + irq + softirq + steal;
         totals.push_back(total);
-        // store idles as well appended (we will keep mapping)
+    // store idle (idle + iowait) for accurate busy% later
+    idles.push_back(idle + iowait);
     }
 
     if (totals.empty()) return;
@@ -79,6 +81,8 @@ void ActivityMonitor::updateCPUInfo() {
     if (curr_cpu_times.empty()) {
         curr_cpu_times = totals;
         prev_cpu_times = totals;
+        curr_idle_times = idles;
+        prev_idle_times = idles;
         cpu_info.num_cores = (int)totals.size() - 1;
         cpu_info.core_usage.assign(cpu_info.num_cores, 0.0f);
         cpu_info.total_usage = 0.0f;
@@ -87,33 +91,39 @@ void ActivityMonitor::updateCPUInfo() {
 
     prev_cpu_times = curr_cpu_times;
     curr_cpu_times = totals;
+    prev_idle_times = curr_idle_times;
+    curr_idle_times = idles;
 
-    // total line is index 0
+    // total line is index 0; compute per-core busy% using each core's own totals
     unsigned long long prev_total = prev_cpu_times[0];
     unsigned long long curr_total = curr_cpu_times[0];
-    unsigned long long total_diff = curr_total - prev_total;
+    unsigned long long total_diff = (curr_total > prev_total) ? (curr_total - prev_total) : 0ULL;
     if (total_diff == 0) total_diff = 1;
 
-    // compute idle diff: approximate using idle field positions by rereading line is complex; as approximation, compute usage from total diffs between total and sum of idle-like values
-    // For simplicity, compute usage as 100 - (idle_diff/total_diff)*100 using difference of totals of all cpus compared to sum of cores
-    // This is a coarse estimate but works for a demo.
-
-    // Compute core usage approximations by reading /proc/stat again per-core with same method: derive percent as 100 * (1 - (prev/cur))? We'll compute fraction by diff/total
     int cores = (int)curr_cpu_times.size() - 1;
     cpu_info.core_usage.clear();
     for (int i = 0; i < cores; ++i) {
-        unsigned long long p = prev_cpu_times[i+1];
-        unsigned long long c = curr_cpu_times[i+1];
-        unsigned long long diff = (c > p) ? (c - p) : 0;
-        float usage = 100.0f * (float)diff / (float)( (curr_total - prev_total) == 0 ? 1 : (curr_total - prev_total) );
+        unsigned long long total_prev_core = prev_cpu_times[i+1];
+        unsigned long long total_curr_core = curr_cpu_times[i+1];
+        unsigned long long idle_prev_core  = prev_idle_times[i+1];
+        unsigned long long idle_curr_core  = curr_idle_times[i+1];
+
+        unsigned long long delta_total_core = (total_curr_core > total_prev_core) ? (total_curr_core - total_prev_core) : 0ULL;
+        if (delta_total_core == 0) delta_total_core = 1; // avoid div-by-zero
+        unsigned long long delta_idle_core  = (idle_curr_core > idle_prev_core) ? (idle_curr_core - idle_prev_core) : 0ULL;
+        unsigned long long delta_busy_core  = (delta_total_core > delta_idle_core) ? (delta_total_core - delta_idle_core) : 0ULL;
+
+        float usage = 100.0f * (float)delta_busy_core / (float)delta_total_core;
         if (usage > 100.0f) usage = 100.0f;
         cpu_info.core_usage.push_back(usage);
     }
 
-    // Total approximate usage: average of core usage
-    float sum = 0.0f;
-    for (float v : cpu_info.core_usage) sum += v;
-    cpu_info.total_usage = (cpu_info.core_usage.empty() ? 0.0f : sum / cpu_info.core_usage.size());
+    // Compute total CPU busy% using aggregate line (index 0)
+    unsigned long long idle_prev_total = prev_idle_times[0];
+    unsigned long long idle_curr_total = curr_idle_times[0];
+    unsigned long long delta_idle_total = (idle_curr_total > idle_prev_total) ? (idle_curr_total - idle_prev_total) : 0ULL;
+    unsigned long long delta_busy_total = (total_diff > delta_idle_total) ? (total_diff - delta_idle_total) : 0ULL;
+    cpu_info.total_usage = 100.0f * (float)delta_busy_total / (float)total_diff;
     cpu_info.num_cores = cores;
 
     // push into history buffers
@@ -574,6 +584,14 @@ void ActivityMonitor::handleInput(int ch) {
     switch (ch) {
         case 'q': running = false; break;
         case 'r': collectData(); break;
+        case 'z':
+            // Toggle CPU zoom mode between dynamic and fixed 0-100
+            cpu_zoom_dynamic = !cpu_zoom_dynamic;
+            break;
+        case 't':
+            // Toggle CPU display mode between per-core and total
+            cpu_mode_per_core = !cpu_mode_per_core;
+            break;
         case '/': // Enter search mode
         case 's':
             search_mode = true;
